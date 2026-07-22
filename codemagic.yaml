@@ -10,6 +10,8 @@ workflows:
         IOS_DEPLOYMENT_TARGET: "15.0"
         BUNDLE_ID: "com.selimbibberrr.sherrrberrr"
     scripts:
+      - name: Materialize validated 1.0 source tree
+        script: python3 bootstrap_sourcepack.py
       - name: Generate deterministic release app icon
         script: python3 tools/generate_app_icon.py
       - name: Validate 1.0 source contract
@@ -70,6 +72,8 @@ workflows:
         IOS_DEPLOYMENT_TARGET: "15.0"
         BUNDLE_ID: "com.selimbibberrr.sherrrberrr"
     scripts:
+      - name: Materialize validated 1.0 source tree
+        script: python3 bootstrap_sourcepack.py
       - name: Generate deterministic release app icon
         script: python3 tools/generate_app_icon.py
       - name: Validate 1.0 source contract
@@ -138,6 +142,8 @@ workflows:
         IOS_DEPLOYMENT_TARGET: "15.0"
         BUNDLE_ID: "com.selimbibberrr.sherrrberrr"
     scripts:
+      - name: Materialize validated 1.0 source tree
+        script: python3 bootstrap_sourcepack.py
       - name: Generate deterministic release app icon
         script: python3 tools/generate_app_icon.py
       - name: Validate 1.0 source contract

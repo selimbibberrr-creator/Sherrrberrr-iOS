@@ -1,0 +1,201 @@
+workflows:
+  ios-simulator-smoke:
+    name: SherrrBerrr 1.0 - iOS Simulator Compile
+    instance_type: mac_mini_m2
+    max_build_duration: 60
+    environment:
+      xcode: 26.4
+      vars:
+        JUCE_TAG: "8.0.10"
+        IOS_DEPLOYMENT_TARGET: "15.0"
+        BUNDLE_ID: "com.selimbibberrr.sherrrberrr"
+    scripts:
+      - name: Generate deterministic release app icon
+        script: python3 tools/generate_app_icon.py
+      - name: Validate 1.0 source contract
+        script: python3 tools/validate_ios_1_0.py
+      - name: Fetch pinned JUCE
+        script: |
+          rm -rf "$CM_BUILD_DIR/.deps/JUCE"
+          git clone --depth 1 --branch "$JUCE_TAG" https://github.com/juce-framework/JUCE.git "$CM_BUILD_DIR/.deps/JUCE"
+      - name: Configure iOS Simulator project
+        script: |
+          cmake -S "$CM_BUILD_DIR" -B "$CM_BUILD_DIR/build-ios-sim" -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_SYSROOT=iphonesimulator \
+            -DCMAKE_OSX_ARCHITECTURES=arm64 \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
+            -DJUCE_DIR="$CM_BUILD_DIR/.deps/JUCE" \
+            -DGSK_IOS_BUNDLE_ID="$BUNDLE_ID" \
+            -DGSK_BUILD_VERSION="1.0.${CM_BUILD_NUMBER}" \
+            -DBUILD_TESTING=OFF \
+            -DGSK_BUILD_DESKTOP_QA=OFF
+      - name: Record generated bundle identifiers
+        script: |
+          mkdir -p "$CM_BUILD_DIR/artifacts/metadata"
+          python3 tools/list_ios_bundle_ids.py \
+            "$CM_BUILD_DIR/build-ios-sim/GabberShermanKick.xcodeproj/project.pbxproj" \
+            "$BUNDLE_ID" | tee "$CM_BUILD_DIR/artifacts/metadata/bundle_ids.txt"
+      - name: Build AUv3 and Standalone for Simulator
+        script: |
+          cmake --build "$CM_BUILD_DIR/build-ios-sim" --config Release \
+            --target GabberShermanKick_AUv3 GabberShermanKick_Standalone -- \
+            -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO
+      - name: Collect Simulator artifacts
+        script: |
+          mkdir -p "$CM_BUILD_DIR/artifacts/simulator"
+          find "$CM_BUILD_DIR/build-ios-sim" -type d \( -name '*.app' -o -name '*.appex' \) -print
+          if [ -d "$CM_BUILD_DIR/build-ios-sim/GabberShermanKick_artefacts" ]; then
+            ditto -c -k --sequesterRsrc --keepParent \
+              "$CM_BUILD_DIR/build-ios-sim/GabberShermanKick_artefacts" \
+              "$CM_BUILD_DIR/artifacts/simulator/SherrrBerrr-1.0-simulator.zip"
+          fi
+    artifacts:
+      - artifacts/simulator/**
+      - artifacts/metadata/**
+      - /tmp/xcodebuild_logs/*.log
+      - build-ios-sim/**/*.app
+      - build-ios-sim/**/*.appex
+
+  ios-ipad-development:
+    name: SherrrBerrr 1.0 - Signed iPad Development IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    environment:
+      xcode: 26.4
+      groups:
+        - appstore_credentials
+      vars:
+        JUCE_TAG: "8.0.10"
+        IOS_DEPLOYMENT_TARGET: "15.0"
+        BUNDLE_ID: "com.selimbibberrr.sherrrberrr"
+    scripts:
+      - name: Generate deterministic release app icon
+        script: python3 tools/generate_app_icon.py
+      - name: Validate 1.0 source contract
+        script: python3 tools/validate_ios_1_0.py
+      - name: Fetch pinned JUCE
+        script: |
+          rm -rf "$CM_BUILD_DIR/.deps/JUCE"
+          git clone --depth 1 --branch "$JUCE_TAG" https://github.com/juce-framework/JUCE.git "$CM_BUILD_DIR/.deps/JUCE"
+      - name: Configure signed iOS device project
+        script: |
+          cmake -S "$CM_BUILD_DIR" -B "$CM_BUILD_DIR/build-ios-device" -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
+            -DJUCE_DIR="$CM_BUILD_DIR/.deps/JUCE" \
+            -DGSK_IOS_BUNDLE_ID="$BUNDLE_ID" \
+            -DGSK_BUILD_VERSION="1.0.${CM_BUILD_NUMBER}" \
+            -DBUILD_TESTING=OFF \
+            -DGSK_BUILD_DESKTOP_QA=OFF
+      - name: Initialize signing keychain
+        script: keychain initialize
+      - name: Fetch or create Development signing files
+        script: |
+          set -euo pipefail
+          python3 tools/list_ios_bundle_ids.py "$CM_BUILD_DIR/build-ios-device/GabberShermanKick.xcodeproj/project.pbxproj" "$BUNDLE_ID" > /tmp/sherrrberrr_bundle_ids.txt
+          cat /tmp/sherrrberrr_bundle_ids.txt
+          while IFS= read -r bundle_id; do
+            [ -n "$bundle_id" ] || continue
+            app-store-connect fetch-signing-files "$bundle_id" --type IOS_APP_DEVELOPMENT --create
+          done < /tmp/sherrrberrr_bundle_ids.txt
+      - name: Add signing certificates to keychain
+        script: keychain add-certificates
+      - name: Apply provisioning profiles
+        script: |
+          cd "$CM_BUILD_DIR/build-ios-device"
+          xcode-project use-profiles
+      - name: Build signed iPad/iPhone IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$CM_BUILD_DIR/build-ios-device/GabberShermanKick.xcodeproj" \
+            --scheme "GabberShermanKick_Standalone"
+      - name: Verify signed package contains AUv3
+        script: |
+          set -euo pipefail
+          IPA="$(find "$CM_BUILD_DIR" -type f -name '*.ipa' -print -quit)"
+          test -n "$IPA"
+          rm -rf /tmp/sherrrberrr-ipa-check && mkdir -p /tmp/sherrrberrr-ipa-check
+          unzip -q "$IPA" -d /tmp/sherrrberrr-ipa-check
+          find /tmp/sherrrberrr-ipa-check -type d -name '*.appex' -print | grep -q .
+          echo "Verified IPA: $IPA"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - '**/*.ipa'
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+
+  ios-testflight-internal:
+    name: SherrrBerrr 1.0 - TestFlight Internal Upload
+    instance_type: mac_mini_m2
+    max_build_duration: 90
+    environment:
+      xcode: 26.4
+      groups:
+        - appstore_credentials
+      vars:
+        JUCE_TAG: "8.0.10"
+        IOS_DEPLOYMENT_TARGET: "15.0"
+        BUNDLE_ID: "com.selimbibberrr.sherrrberrr"
+    scripts:
+      - name: Generate deterministic release app icon
+        script: python3 tools/generate_app_icon.py
+      - name: Validate 1.0 source contract
+        script: python3 tools/validate_ios_1_0.py
+      - name: Fetch pinned JUCE
+        script: |
+          rm -rf "$CM_BUILD_DIR/.deps/JUCE"
+          git clone --depth 1 --branch "$JUCE_TAG" https://github.com/juce-framework/JUCE.git "$CM_BUILD_DIR/.deps/JUCE"
+      - name: Configure App Store project
+        script: |
+          cmake -S "$CM_BUILD_DIR" -B "$CM_BUILD_DIR/build-ios-appstore" -G Xcode \
+            -DCMAKE_SYSTEM_NAME=iOS \
+            -DCMAKE_OSX_DEPLOYMENT_TARGET="$IOS_DEPLOYMENT_TARGET" \
+            -DJUCE_DIR="$CM_BUILD_DIR/.deps/JUCE" \
+            -DGSK_IOS_BUNDLE_ID="$BUNDLE_ID" \
+            -DGSK_BUILD_VERSION="1.0.${CM_BUILD_NUMBER}" \
+            -DBUILD_TESTING=OFF \
+            -DGSK_BUILD_DESKTOP_QA=OFF
+      - name: Initialize signing keychain
+        script: keychain initialize
+      - name: Fetch or create App Store signing files
+        script: |
+          set -euo pipefail
+          python3 tools/list_ios_bundle_ids.py "$CM_BUILD_DIR/build-ios-appstore/GabberShermanKick.xcodeproj/project.pbxproj" "$BUNDLE_ID" > /tmp/sherrrberrr_bundle_ids.txt
+          cat /tmp/sherrrberrr_bundle_ids.txt
+          while IFS= read -r bundle_id; do
+            [ -n "$bundle_id" ] || continue
+            app-store-connect fetch-signing-files "$bundle_id" --type IOS_APP_STORE --create
+          done < /tmp/sherrrberrr_bundle_ids.txt
+      - name: Add signing certificates to keychain
+        script: keychain add-certificates
+      - name: Apply App Store provisioning profiles
+        script: |
+          cd "$CM_BUILD_DIR/build-ios-appstore"
+          xcode-project use-profiles --custom-export-options='{"testFlightInternalTestingOnly": true}'
+      - name: Build App Store IPA
+        script: |
+          xcode-project build-ipa \
+            --project "$CM_BUILD_DIR/build-ios-appstore/GabberShermanKick.xcodeproj" \
+            --scheme "GabberShermanKick_Standalone"
+      - name: Verify IPA contains AUv3
+        script: |
+          set -euo pipefail
+          IPA="$(find "$CM_BUILD_DIR" -type f -name '*.ipa' -print -quit)"
+          test -n "$IPA"
+          rm -rf /tmp/sherrrberrr-ipa-check && mkdir -p /tmp/sherrrberrr-ipa-check
+          unzip -q "$IPA" -d /tmp/sherrrberrr-ipa-check
+          find /tmp/sherrrberrr-ipa-check -type d -name '*.appex' -print | grep -q .
+          echo "Verified IPA: $IPA"
+    artifacts:
+      - build/ios/ipa/*.ipa
+      - '**/*.ipa'
+      - /tmp/xcodebuild_logs/*.log
+      - $HOME/Library/Developer/Xcode/DerivedData/**/Build/**/*.dSYM
+    publishing:
+      app_store_connect:
+        api_key: $APP_STORE_CONNECT_PRIVATE_KEY
+        key_id: $APP_STORE_CONNECT_KEY_IDENTIFIER
+        issuer_id: $APP_STORE_CONNECT_ISSUER_ID
+        submit_to_testflight: false
+        submit_to_app_store: false

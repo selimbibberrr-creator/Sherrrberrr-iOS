@@ -18,17 +18,27 @@ Production source for **Kick flavored SherrrBerrr** on iOS/iPadOS. One JUCE/C++ 
 - Imported samples: WAV/AIFF/FLAC, embedded in state for recall
 - Same DSP core for VST3, AUv3 and Standalone
 
-The 1.0 release plumbing does **not** alter the DSP/parameter source files from the hardened 0.8 baseline. `tools/validate_ios_1_0.py` fingerprints all 34 critical DSP/parameter files on every CI build.
+The 1.0 release plumbing does **not** alter the active DSP/parameter source from the hardened 0.8 baseline. `tools/validate_ios_1_0.py` fingerprints all **12 active DSP/parameter files** on every CI build; the final local comparison is 12/12 byte-identical.
+
+## Reproducible source bootstrap
+
+A fresh clone contains the release source pack as text-safe `.sourcepack/part*` chunks. Run:
+
+```bash
+python3 bootstrap_sourcepack.py
+```
+
+This verifies the packed source SHA-256 before extracting it, rejects unsafe archive paths, and is idempotent. Every Codemagic workflow performs this as its first step, so no Git LFS, GitHub Actions unpack job, or external source download is required.
 
 ## Codemagic
 
 `codemagic.yaml` is committed at repository root and contains three workflows:
 
-1. **SherrrBerrr 1.0 - iOS Simulator Compile** — no Apple credentials required. This is the first workflow to run; it proves the Xcode/JUCE project compiles as AUv3 + Standalone.
+1. **SherrrBerrr 1.0 - iOS Simulator Compile** — no Apple credentials required. This is the first workflow to run; it materializes and validates the release source, then proves the Xcode/JUCE project compiles as AUv3 + Standalone.
 2. **SherrrBerrr 1.0 - Signed iPad Development IPA** — creates/fetches Development signing files, builds an installable IPA for registered devices and verifies the AUv3 `.appex` is embedded.
-3. **SherrrBerrr 1.0 - TestFlight Internal Upload** — App Store signing and upload for internal TestFlight testing without external beta review submission.
+3. **SherrrBerrr 1.0 - TestFlight Internal Upload** — App Store signing and upload for internal TestFlight testing.
 
-The workflows pin **Xcode 26.4** and **JUCE 8.0.10** for reproducibility. Build numbers are generated as `1.0.$CM_BUILD_NUMBER` while the user-facing version remains `1.0.0`.
+The workflows pin **Xcode 26.4** and **JUCE 8.0.10** for reproducibility. The 1024px RGB app icon is generated deterministically by `tools/generate_app_icon.py`. Build numbers are generated as `1.0.$CM_BUILD_NUMBER` while the user-facing version remains `1.0.0`.
 
 ### First Codemagic build
 
@@ -41,13 +51,14 @@ For signed builds, create a Codemagic environment-variable group named **`appsto
 - `APP_STORE_CONNECT_ISSUER_ID`
 - `CERTIFICATE_PRIVATE_KEY`
 
-The unsigned smoke workflow records the exact generated Standalone + AUv3 bundle IDs as `bundle_ids.txt`. Register those identifiers in Apple Developer if needed. The signed workflows then discover the same IDs and create/fetch a matching provisioning profile for each before `xcode-project use-profiles` and IPA export.
+The unsigned smoke workflow records the exact generated Standalone + AUv3 bundle IDs as `bundle_ids.txt`. Register those identifiers in Apple Developer if needed. The signed workflows discover the same IDs and create/fetch a matching provisioning profile for each before `xcode-project use-profiles` and IPA export.
 
 See [`docs/CODEMAGIC_SETUP_1.0.md`](docs/CODEMAGIC_SETUP_1.0.md) for the exact UI steps and [`docs/IPAD_TEST_PLAN_1.0.md`](docs/IPAD_TEST_PLAN_1.0.md) for device/host validation.
 
 ## Local macOS build
 
 ```bash
+python3 bootstrap_sourcepack.py
 git clone --branch 8.0.10 --depth 1 https://github.com/juce-framework/JUCE.git .deps/JUCE
 export JUCE_DIR="$PWD/.deps/JUCE"
 ./tools/configure_ios.sh build-ios
@@ -59,13 +70,16 @@ A signed local archive can be created with `tools/archive_ios_release.sh` after 
 ## Validation
 
 ```bash
+python3 bootstrap_sourcepack.py
+python3 tools/generate_app_icon.py
 python3 tools/validate_ios_1_0.py
 ```
 
-The release repository is intentionally cleaned of obsolete beta packaging files. Active release documentation is:
+Current static release validation: **31/31 PASS**. The actual Apple compile gate is the Codemagic `ios-simulator-smoke` workflow; signed iPad acceptance follows the matrix in `docs/IPAD_TEST_PLAN_1.0.md`.
+
+Active release documentation:
 
 - `docs/RELEASE_NOTES_1.0.md`
 - `docs/CODEMAGIC_SETUP_1.0.md`
 - `docs/IPAD_TEST_PLAN_1.0.md`
-- `docs/IOS_RELEASE_VALIDATION_1.0.json`
 - `docs/ARCHITECTURE_1.0.md`

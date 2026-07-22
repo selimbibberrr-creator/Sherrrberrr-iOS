@@ -18,7 +18,7 @@ Production source for **Kick flavored SherrrBerrr** on iOS/iPadOS. One JUCE/C++ 
 - Imported samples: WAV/AIFF/FLAC, embedded in state for recall
 - Same DSP core for VST3, AUv3 and Standalone
 
-The 1.0 release plumbing does **not** alter the active DSP/parameter source from the hardened 0.8 baseline. `tools/validate_ios_1_0.py` fingerprints all **12 active DSP/parameter files** on every CI build; the final local comparison is 12/12 byte-identical.
+The hardened 0.8 DSP/state behavior is retained. The 1.0 Apple build adds one narrow libc++ compatibility change to the shared sample-pointer handoff: C++20 `std::atomic<std::shared_ptr<T>>` is replaced at bootstrap time by atomic `shared_ptr` load/store operations supported by Apple's libc++. No synthesis, filter, distortion, parameter-ID, preset, or state-schema behavior is changed. `tools/validate_ios_1_0.py` fingerprints all **12 active DSP/parameter files** on every CI build.
 
 ## Reproducible source bootstrap
 
@@ -28,7 +28,7 @@ A fresh clone contains the release source pack as text-safe `.sourcepack/part*` 
 python3 bootstrap_sourcepack.py
 ```
 
-This verifies the packed source SHA-256 before extracting it, rejects unsafe archive paths, and is idempotent. Every Codemagic workflow performs this as its first step, so no Git LFS, GitHub Actions unpack job, or external source download is required.
+This verifies the packed source SHA-256 before extracting it, rejects unsafe archive paths, and then applies the idempotent Apple/libc++ compatibility patch. Every Codemagic workflow performs this as its first step, so no Git LFS, GitHub Actions unpack job, or external source download is required.
 
 ## Codemagic
 
@@ -75,7 +75,7 @@ python3 tools/generate_app_icon.py
 python3 tools/validate_ios_1_0.py
 ```
 
-Current static release validation: **31/31 PASS**. The actual Apple compile gate is the Codemagic `ios-simulator-smoke` workflow; signed iPad acceptance follows the matrix in `docs/IPAD_TEST_PLAN_1.0.md`.
+Current static release validation: **31/31 PASS** after the Apple/libc++ compatibility patch. The actual Apple compile gate is the Codemagic `ios-simulator-smoke` workflow; signed iPad acceptance follows the matrix in `docs/IPAD_TEST_PLAN_1.0.md`.
 
 Active release documentation:
 

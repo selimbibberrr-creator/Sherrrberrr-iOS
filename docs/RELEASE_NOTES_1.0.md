@@ -2,7 +2,7 @@
 
 ## Release status
 
-1.0 promotes the hardened 0.8 AUv3/Standalone architecture to the production release line. The DSP and 128-parameter contract are frozen; 1.0 focuses on reproducible Apple builds, release identity, signing, packaging, and iPad validation.
+1.0 promotes the hardened 0.8 AUv3/Standalone architecture to the production release line. The 128-parameter/state contract is frozen; 1.0 focuses on reproducible Apple builds, release identity, signing, packaging, iPad validation, and toolchain compatibility.
 
 ## Included
 
@@ -14,6 +14,7 @@
 - Production app icon, version `1.0.0`, stable iOS bundle ID.
 - Codemagic unsigned compile, signed Development IPA, and internal TestFlight workflows.
 - Signed IPA verification step requiring an embedded `.appex` before a build is considered successful.
+- Apple/libc++ compatibility patch for shared sample publication: C++20 `std::atomic<std::shared_ptr<T>>` is replaced by atomic `shared_ptr` load/store operations during deterministic source bootstrap. This is a concurrency/toolchain compatibility change only; synthesis, filtering, distortion and parameter semantics are unchanged.
 
 ## Compatibility contract
 
